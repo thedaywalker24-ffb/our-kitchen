@@ -39,6 +39,16 @@ import { createClient } from "@/lib/supabase/client";
 
 type View = "recipes" | "favorites";
 type DisplayMode = "grid" | "list";
+type SortMode = "recent" | "name" | "time";
+
+function durationMinutes(value: string) {
+  const normalized = value.toLocaleLowerCase();
+  const days = normalized.match(/(\d+(?:\.\d+)?)\s*(?:day|days)\b/);
+  const hours = normalized.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/);
+  const minutes = normalized.match(/(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b/);
+  if (!days && !hours && !minutes) return null;
+  return (Number(days?.[1] ?? 0) * 1440) + (Number(hours?.[1] ?? 0) * 60) + Number(minutes?.[1] ?? 0);
+}
 
 export function RecipeApp({
   householdId,
@@ -64,6 +74,9 @@ export function RecipeApp({
   const [category, setCategory] = useState("All");
   const [favorites, setFavorites] = useState<string[]>(initialFavoriteIds ?? ["1001", "1003"]);
   const [displayMode, setDisplayMode] = useState<DisplayMode>("grid");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [maxTotalMinutes, setMaxTotalMinutes] = useState<number | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>("recent");
   const [selected, setSelected] = useState<Recipe | null>(() => initialRecipeData.find((recipe) => recipe.id === initialSelectedId) ?? null);
   const [cooking, setCooking] = useState<Recipe | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -212,9 +225,11 @@ export function RecipeApp({
 
   const filteredRecipes = useMemo(() => {
     const term = search.trim().toLocaleLowerCase();
-    return recipes.filter((recipe) => {
+    const matches = recipes.filter((recipe) => {
       const matchesView = view === "recipes" || favorites.includes(recipe.id);
       const matchesCategory = category === "All" || recipe.categories.includes(category);
+      const totalMinutes = durationMinutes(recipe.total);
+      const matchesTime = maxTotalMinutes === null || (totalMinutes !== null && totalMinutes <= maxTotalMinutes);
       const haystack = [
         recipe.title,
         recipe.description,
@@ -224,9 +239,19 @@ export function RecipeApp({
       ]
         .join(" ")
         .toLocaleLowerCase();
-      return matchesView && matchesCategory && (!term || haystack.includes(term));
+      return matchesView && matchesCategory && matchesTime && (!term || haystack.includes(term));
     });
-  }, [category, favorites, recipes, search, view]);
+
+    return matches.sort((a, b) => {
+      if (sortMode === "name") return a.title.localeCompare(b.title);
+      if (sortMode === "time") {
+        const aTime = durationMinutes(a.total) ?? Number.POSITIVE_INFINITY;
+        const bTime = durationMinutes(b.total) ?? Number.POSITIVE_INFINITY;
+        return aTime - bTime || a.title.localeCompare(b.title);
+      }
+      return 0;
+    });
+  }, [category, favorites, maxTotalMinutes, recipes, search, sortMode, view]);
 
   const categoryOptions = useMemo(() => {
     const categories = new Set(recipes.flatMap((recipe) => recipe.categories));
@@ -235,6 +260,7 @@ export function RecipeApp({
 
   const visibleRecipes = filteredRecipes.slice(0, visibleCount);
   const categoryCount = new Set(recipes.flatMap((recipe) => recipe.categories)).size;
+  const activeFilterCount = Number(category !== "All") + Number(maxTotalMinutes !== null) + Number(sortMode !== "recent");
 
   return (
     <main className="app-shell">
@@ -287,7 +313,10 @@ export function RecipeApp({
             />
             {search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search"><X /></button>}
           </label>
-          <button className="filter-button" type="button" aria-label="Filter recipes"><SlidersHorizontal /></button>
+          <button className={activeFilterCount ? "filter-button active" : "filter-button"} type="button" onClick={() => setFilterOpen(true)} aria-label={activeFilterCount ? `Filter recipes, ${activeFilterCount} active` : "Filter recipes"}>
+            <SlidersHorizontal />
+            {activeFilterCount > 0 && <span aria-hidden="true">{activeFilterCount}</span>}
+          </button>
         </div>
 
         <fieldset className="category-scroller">
@@ -389,7 +418,51 @@ export function RecipeApp({
       {editing && <EditRecipe recipe={editing} onClose={() => setEditing(null)} onSave={updateRecipe} />}
       {sharing && <ShareRecipe recipe={sharing} onClose={() => setSharing(null)} onDisable={disableShare} onGetUrl={getShareUrl} />}
       {planning && <PlanMeal recipe={planning} onClose={() => setPlanning(null)} onGetUrl={getShareUrl} />}
+      {filterOpen && (
+        <RecipeFilters
+          categories={categoryOptions}
+          category={category}
+          maxTotalMinutes={maxTotalMinutes}
+          sortMode={sortMode}
+          onClose={() => setFilterOpen(false)}
+          onApply={(nextCategory, nextMaxTime, nextSort) => {
+            setCategory(nextCategory);
+            setMaxTotalMinutes(nextMaxTime);
+            setSortMode(nextSort);
+            setVisibleCount(24);
+            setFilterOpen(false);
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+function RecipeFilters({ categories, category, maxTotalMinutes, sortMode, onApply, onClose }: { categories: string[]; category: string; maxTotalMinutes: number | null; sortMode: SortMode; onApply: (category: string, maxTime: number | null, sort: SortMode) => void; onClose: () => void }) {
+  const [draftCategory, setDraftCategory] = useState(category);
+  const [draftMaxTime, setDraftMaxTime] = useState(maxTotalMinutes === null ? "" : String(maxTotalMinutes));
+  const [draftSort, setDraftSort] = useState<SortMode>(sortMode);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onApply(draftCategory, draftMaxTime ? Number(draftMaxTime) : null, draftSort);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="add-modal filter-modal" role="dialog" aria-modal="true" aria-label="Filter recipes">
+        <div className="modal-header"><div><p className="eyebrow">Refine the library</p><h2>Filters</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X /></button></div>
+        <form className="manual-form filter-form" onSubmit={submit}>
+          <label>Category<select value={draftCategory} onChange={(event) => setDraftCategory(event.target.value)}>{categories.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          <label>Maximum total time<select value={draftMaxTime} onChange={(event) => setDraftMaxTime(event.target.value)}><option value="">Any length</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option><option value="240">4 hours</option></select></label>
+          <label>Sort by<select value={draftSort} onChange={(event) => setDraftSort(event.target.value as SortMode)}><option value="recent">Recently added</option><option value="name">Name A–Z</option><option value="time">Fastest first</option></select></label>
+          <div className="action-buttons filter-actions">
+            <button className="secondary-button" type="button" onClick={() => onApply("All", null, "recent")}>Reset</button>
+            <button className="primary-button" type="submit"><SlidersHorizontal /> Show recipes</button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 

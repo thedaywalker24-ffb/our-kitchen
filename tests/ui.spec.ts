@@ -98,6 +98,29 @@ test("recipe options support sharing and meal planning", async ({ page }) => {
   await page.screenshot({ path: "/tmp/our-kitchen-mobile-plan-meal.png" });
 });
 
+test("recipe filters apply category, total time, and sort order", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/preview");
+
+  await page.getByRole("button", { name: "Filter recipes" }).click();
+  const filterDialog = page.getByRole("dialog", { name: "Filter recipes" });
+  await filterDialog.getByLabel("Category").selectOption("Chicken");
+  await filterDialog.getByLabel("Maximum total time").selectOption("60");
+  await filterDialog.getByLabel("Sort by").selectOption("name");
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-filter-sheet.png" });
+  await filterDialog.getByRole("button", { name: "Show recipes" }).click();
+
+  await expect(page.locator(".recipe-card")).toHaveCount(2);
+  await expect(page.locator(".recipe-card h3").first()).toHaveText("Chicken Cobbler Pot Pie");
+  await expect(page.getByRole("button", { name: "Filter recipes, 3 active" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Filter recipes, 3 active" }).click();
+  await page.getByRole("dialog", { name: "Filter recipes" }).getByRole("button", { name: "Reset" }).click();
+  await expect(page.locator(".recipe-card")).toHaveCount(6);
+  await expect(page.getByRole("button", { name: "Filter recipes" })).toBeVisible();
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-filters.png", fullPage: true });
+});
+
 test("desktop library filters and add flow work", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/preview");
