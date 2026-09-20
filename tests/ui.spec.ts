@@ -43,6 +43,27 @@ test("mobile recipe and cooking flows are usable", async ({ page }) => {
   await page.screenshot({ path: "/tmp/our-kitchen-mobile-cooking.png", fullPage: true });
 });
 
+test("recipe options can edit an existing recipe", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/preview");
+
+  await page.getByLabel("Open Oven-Roasted Whole Chicken").click();
+  await page.getByRole("button", { name: "More options" }).click();
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.getByRole("menuitem", { name: "Edit recipe" }).click();
+
+  const editDialog = page.getByRole("dialog", { name: "Edit Oven-Roasted Whole Chicken" });
+  await expect(editDialog.getByLabel("Recipe title")).toHaveValue("Oven-Roasted Whole Chicken");
+  await expect(editDialog.getByLabel("Ingredients", { exact: true })).toHaveValue(/1 whole chicken/);
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-editor.png" });
+  await editDialog.getByLabel("Recipe title").fill("Sunday Roast Chicken");
+  await editDialog.getByRole("button", { name: "Save changes" }).click();
+
+  const updatedRecipe = page.getByRole("dialog", { name: "Sunday Roast Chicken" });
+  await expect(updatedRecipe.getByRole("heading", { name: "Sunday Roast Chicken" })).toBeVisible();
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-edited.png", fullPage: true });
+});
+
 test("desktop library filters and add flow work", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/preview");

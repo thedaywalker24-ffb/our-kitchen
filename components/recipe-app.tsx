@@ -18,6 +18,7 @@ import {
   ListChecks,
   Minus,
   MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   SlidersHorizontal,
@@ -57,6 +58,7 @@ export function RecipeApp({
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [cooking, setCooking] = useState<Recipe | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<Recipe | null>(null);
   const [visibleCount, setVisibleCount] = useState(24);
 
   useEffect(() => {
@@ -127,6 +129,36 @@ export function RecipeApp({
     setRecipes((current) => [savedRecipe, ...current]);
     setAddOpen(false);
     setSelected(savedRecipe);
+  }
+
+  async function updateRecipe(recipe: Recipe) {
+    if (householdId) {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("recipes")
+        .update({
+          title: recipe.title,
+          description: recipe.description,
+          yield_text: recipe.yield === "Not specified" ? "" : recipe.yield,
+          active_time: recipe.active === "Not specified" ? "" : recipe.active,
+          total_time: recipe.total === "Not specified" ? "" : recipe.total,
+          ingredients: recipe.ingredients,
+          instructions: recipe.steps,
+          source: recipe.source,
+          source_url: recipe.sourceUrl || null,
+          notes: recipe.notes || "",
+          image_url: /^https?:\/\//i.test(recipe.image) ? recipe.image : null,
+          categories: recipe.categories,
+        })
+        .eq("id", recipe.id)
+        .eq("household_id", householdId);
+
+      if (error) return error.message;
+    }
+
+    setRecipes((current) => current.map((item) => item.id === recipe.id ? recipe : item));
+    setSelected(recipe);
+    setEditing(null);
   }
 
   const filteredRecipes = useMemo(() => {
@@ -296,12 +328,14 @@ export function RecipeApp({
           recipe={selected}
           favorite={favorites.includes(selected.id)}
           onClose={() => setSelected(null)}
+          onEdit={() => setEditing(selected)}
           onFavorite={() => toggleFavorite(selected.id)}
           onCook={() => { setSelected(null); setCooking(selected); }}
         />
       )}
       {cooking && <CookingMode recipe={cooking} onClose={() => setCooking(null)} />}
       {addOpen && <AddRecipe onClose={() => setAddOpen(false)} onAdd={addRecipe} />}
+      {editing && <EditRecipe recipe={editing} onClose={() => setEditing(null)} onSave={updateRecipe} />}
     </main>
   );
 }
@@ -347,15 +381,21 @@ function RecipeImage({ src, alt, eager = false, sizes = "100vw" }: { src: string
   return <Image src={src} alt={alt} fill loading={eager ? "eager" : "lazy"} sizes={sizes} />;
 }
 
-function RecipeDetail({ recipe, favorite, onClose, onFavorite, onCook }: { recipe: Recipe; favorite: boolean; onClose: () => void; onFavorite: () => void; onCook: () => void }) {
+function RecipeDetail({ recipe, favorite, onClose, onEdit, onFavorite, onCook }: { recipe: Recipe; favorite: boolean; onClose: () => void; onEdit: () => void; onFavorite: () => void; onCook: () => void }) {
   const [servings, setServings] = useState(1);
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="layer recipe-layer" role="dialog" aria-modal="true" aria-label={recipe.title}>
       <div className="detail-topbar">
         <button className="icon-button light" type="button" onClick={onClose} aria-label="Back to recipes"><ArrowLeft /></button>
-        <div>
+        <div className="detail-actions">
           <button className={favorite ? "icon-button light favorite-active" : "icon-button light"} type="button" onClick={onFavorite} aria-label="Toggle favorite"><Heart fill={favorite ? "currentColor" : "none"} /></button>
-          <button className="icon-button light" type="button" aria-label="More options"><MoreHorizontal /></button>
+          <button className="icon-button light" type="button" onClick={() => setMenuOpen((open) => !open)} aria-label="More options" aria-haspopup="menu" aria-expanded={menuOpen}><MoreHorizontal /></button>
+          {menuOpen && (
+            <div className="detail-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onEdit(); }}><Pencil /> Edit recipe</button>
+            </div>
+          )}
         </div>
       </div>
       <div className="detail-hero">
@@ -399,6 +439,93 @@ function RecipeDetail({ recipe, favorite, onClose, onFavorite, onCook }: { recip
         </div>
       </div>
       <div className="cook-bar"><button className="primary-button cook-button" type="button" onClick={onCook}><Sparkles /> Start cooking</button></div>
+    </div>
+  );
+}
+
+function formatIngredients(sections: Recipe["ingredients"]) {
+  return sections.flatMap((section) => [
+    ...(section.section ? [`[${section.section}]`] : []),
+    ...section.items,
+  ]).join("\n");
+}
+
+function parseIngredients(value: string): Recipe["ingredients"] {
+  const sections: Recipe["ingredients"] = [];
+
+  for (const line of value.split("\n").map((item) => item.trim()).filter(Boolean)) {
+    const heading = line.match(/^\[(.+)]$/);
+    if (heading) {
+      sections.push({ section: heading[1].trim(), items: [] });
+      continue;
+    }
+
+    if (!sections.length) {
+      sections.push({ items: [] });
+    }
+    sections.at(-1)?.items.push(line);
+  }
+
+  return sections.filter((section) => section.items.length);
+}
+
+function EditRecipe({ recipe, onClose, onSave }: { recipe: Recipe; onClose: () => void; onSave: (recipe: Recipe) => Promise<string | undefined> }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    const image = String(form.get("image") || "").trim();
+    const sourceUrl = String(form.get("sourceUrl") || "").trim();
+    const notes = String(form.get("notes") || "").trim();
+    const ingredients = parseIngredients(String(form.get("ingredients") || ""));
+    const steps = String(form.get("steps") || "").split("\n").map((step) => step.trim()).filter(Boolean);
+    const categories = String(form.get("categories") || "").split(",").map((category) => category.trim()).filter(Boolean);
+
+    const saveError = await onSave({
+      ...recipe,
+      title: String(form.get("title") || "").trim(),
+      description: String(form.get("description") || "").trim(),
+      image: image || "/images/roast-chicken.jpg",
+      source: String(form.get("source") || "").trim() || "Our Kitchen",
+      sourceUrl: sourceUrl || undefined,
+      yield: String(form.get("yield") || "").trim() || "Not specified",
+      active: String(form.get("active") || "").trim() || "Not specified",
+      total: String(form.get("total") || "").trim() || "Not specified",
+      categories: categories.length ? categories : ["Uncategorized"],
+      ingredients,
+      steps,
+      notes: notes || undefined,
+    });
+
+    if (saveError) {
+      setError(saveError);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="add-modal edit-modal" role="dialog" aria-modal="true" aria-label={`Edit ${recipe.title}`}>
+        <div className="modal-header"><div><p className="eyebrow">Recipe details</p><h2>Edit recipe</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X /></button></div>
+        <form className="manual-form edit-form" onSubmit={submit}>
+          <label>Recipe title<input name="title" required defaultValue={recipe.title} /></label>
+          <label>Description<textarea name="description" rows={3} defaultValue={recipe.description} /></label>
+          <div className="form-grid"><label>Makes<input name="yield" defaultValue={recipe.yield === "Not specified" ? "" : recipe.yield} /></label><label>Prep time<input name="active" defaultValue={recipe.active === "Not specified" ? "" : recipe.active} /></label></div>
+          <div className="form-grid"><label>Total time<input name="total" defaultValue={recipe.total === "Not specified" ? "" : recipe.total} /></label><label>Categories<input name="categories" defaultValue={recipe.categories.join(", ")} /></label></div>
+          <label>Source<input name="source" defaultValue={recipe.source} /></label>
+          <label>Source URL<input name="sourceUrl" type="url" inputMode="url" defaultValue={recipe.sourceUrl || ""} /></label>
+          <label>Image URL<input name="image" type="url" inputMode="url" defaultValue={/^https?:\/\//i.test(recipe.image) ? recipe.image : ""} /></label>
+          <label>Ingredients<textarea name="ingredients" aria-label="Ingredients" required rows={8} defaultValue={formatIngredients(recipe.ingredients)} /></label>
+          <label>Directions<textarea name="steps" aria-label="Directions" required rows={8} defaultValue={recipe.steps.join("\n")} /></label>
+          <label>Notes<textarea name="notes" rows={3} defaultValue={recipe.notes || ""} /></label>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <button className="primary-button full-width" type="submit" disabled={saving}><Check /> {saving ? "Saving…" : "Save changes"}</button>
+        </form>
+      </section>
     </div>
   );
 }
