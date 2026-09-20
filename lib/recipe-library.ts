@@ -49,6 +49,14 @@ function toRecipe(row: RecipeRow): Recipe {
   };
 }
 
+export async function getSharedRecipe(token: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_shared_recipe", { share_token: token });
+  if (error) throw error;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  return toRecipe(data as RecipeRow);
+}
+
 export async function getRecipeLibrary(userId: string) {
   const supabase = await createClient();
   const { data: membership, error: membershipError } = await supabase

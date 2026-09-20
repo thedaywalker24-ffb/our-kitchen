@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 
 test("private household sign-in is available", async ({ page }) => {
@@ -14,6 +15,11 @@ test("private household sign-in is available", async ({ page }) => {
 
 test("recipe library requires a signed-in household member", async ({ page }) => {
   await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+});
+
+test("permanent recipe links require a signed-in household member", async ({ page }) => {
+  await page.goto("/recipes/1001");
   await expect(page).toHaveURL(/\/login$/);
 });
 
@@ -62,6 +68,34 @@ test("recipe options can edit an existing recipe", async ({ page }) => {
   const updatedRecipe = page.getByRole("dialog", { name: "Sunday Roast Chicken" });
   await expect(updatedRecipe.getByRole("heading", { name: "Sunday Roast Chicken" })).toBeVisible();
   await page.screenshot({ path: "/tmp/our-kitchen-mobile-edited.png", fullPage: true });
+});
+
+test("recipe options support sharing and meal planning", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/preview");
+  await page.getByLabel("Open Oven-Roasted Whole Chicken").click();
+
+  await page.getByRole("button", { name: "More options" }).click();
+  await page.getByRole("menuitem", { name: "Share recipe" }).click();
+  const shareDialog = page.getByRole("dialog", { name: "Share Oven-Roasted Whole Chicken" });
+  await expect(shareDialog.getByLabel("Public recipe link")).toHaveValue(/\/recipes\/1001$/);
+  await shareDialog.getByRole("button", { name: "Close" }).click();
+
+  await page.getByRole("button", { name: "More options" }).click();
+  await page.getByRole("menuitem", { name: "Plan meal" }).click();
+  const planDialog = page.getByRole("dialog", { name: "Plan Oven-Roasted Whole Chicken" });
+  await expect(planDialog.getByLabel("Date")).not.toHaveValue("");
+  await expect(planDialog.getByLabel("Time")).toHaveValue("18:00");
+  const downloadPromise = page.waitForEvent("download");
+  await planDialog.getByRole("button", { name: "Add to calendar" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("oven-roasted-whole-chicken.ics");
+  const downloadPath = await download.path();
+  expect(downloadPath).not.toBeNull();
+  const calendar = await readFile(downloadPath as string, "utf8");
+  expect(calendar).toContain("BEGIN:VCALENDAR");
+  expect(calendar).toContain("URL:http://127.0.0.1:3000/recipes/1001");
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-plan-meal.png" });
 });
 
 test("desktop library filters and add flow work", async ({ page }) => {

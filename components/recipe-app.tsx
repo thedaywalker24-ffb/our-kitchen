@@ -4,10 +4,13 @@ import Image from "next/image";
 import {
   ArrowLeft,
   BookOpen,
+  CalendarPlus,
   Check,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Copy,
+  Download,
   ExternalLink,
   FileUp,
   Heart,
@@ -21,12 +24,15 @@ import {
   Pencil,
   Plus,
   Search,
+  Share2,
   SlidersHorizontal,
   Sparkles,
   TimerReset,
   UserRound,
+  Unlink,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { type Recipe, recipes as previewRecipes } from "@/lib/recipes";
 import { createClient } from "@/lib/supabase/client";
@@ -39,6 +45,7 @@ export function RecipeApp({
   householdName = "Williamson home",
   initialFavoriteIds,
   initialRecipeData = previewRecipes,
+  initialSelectedId,
   userEmail = "Williamson home",
   userId,
 }: {
@@ -46,19 +53,23 @@ export function RecipeApp({
   householdName?: string;
   initialFavoriteIds?: string[];
   initialRecipeData?: Recipe[];
+  initialSelectedId?: string;
   userEmail?: string;
   userId?: string;
 }) {
+  const router = useRouter();
   const [recipes, setRecipes] = useState(initialRecipeData);
   const [view, setView] = useState<View>("recipes");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [favorites, setFavorites] = useState<string[]>(initialFavoriteIds ?? ["1001", "1003"]);
   const [displayMode, setDisplayMode] = useState<DisplayMode>("grid");
-  const [selected, setSelected] = useState<Recipe | null>(null);
+  const [selected, setSelected] = useState<Recipe | null>(() => initialRecipeData.find((recipe) => recipe.id === initialSelectedId) ?? null);
   const [cooking, setCooking] = useState<Recipe | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Recipe | null>(null);
+  const [sharing, setSharing] = useState<Recipe | null>(null);
+  const [planning, setPlanning] = useState<Recipe | null>(null);
   const [visibleCount, setVisibleCount] = useState(24);
 
   useEffect(() => {
@@ -159,6 +170,44 @@ export function RecipeApp({
     setRecipes((current) => current.map((item) => item.id === recipe.id ? recipe : item));
     setSelected(recipe);
     setEditing(null);
+  }
+
+  async function getShareUrl(recipeId: string) {
+    if (!householdId) return `${window.location.origin}/recipes/${recipeId}`;
+
+    const supabase = createClient();
+    const { data: existing, error: findError } = await supabase
+      .from("recipe_shares")
+      .select("token")
+      .eq("recipe_id", recipeId)
+      .maybeSingle();
+
+    if (findError) throw new Error(findError.message);
+    let token = existing?.token as string | undefined;
+
+    if (!token) {
+      const { data, error } = await supabase
+        .from("recipe_shares")
+        .insert({ recipe_id: recipeId })
+        .select("token")
+        .single();
+      if (error) throw new Error(error.message);
+      token = data.token as string;
+    }
+
+    return `${window.location.origin}/share/${token}`;
+  }
+
+  async function disableShare(recipeId: string) {
+    if (!householdId) return;
+    const supabase = createClient();
+    const { error } = await supabase.from("recipe_shares").delete().eq("recipe_id", recipeId);
+    if (error) throw new Error(error.message);
+  }
+
+  function closeSelected() {
+    setSelected(null);
+    if (initialSelectedId) router.replace("/");
   }
 
   const filteredRecipes = useMemo(() => {
@@ -327,15 +376,19 @@ export function RecipeApp({
         <RecipeDetail
           recipe={selected}
           favorite={favorites.includes(selected.id)}
-          onClose={() => setSelected(null)}
+          onClose={closeSelected}
           onEdit={() => setEditing(selected)}
           onFavorite={() => toggleFavorite(selected.id)}
+          onPlan={() => setPlanning(selected)}
+          onShare={() => setSharing(selected)}
           onCook={() => { setSelected(null); setCooking(selected); }}
         />
       )}
       {cooking && <CookingMode recipe={cooking} onClose={() => setCooking(null)} />}
       {addOpen && <AddRecipe onClose={() => setAddOpen(false)} onAdd={addRecipe} />}
       {editing && <EditRecipe recipe={editing} onClose={() => setEditing(null)} onSave={updateRecipe} />}
+      {sharing && <ShareRecipe recipe={sharing} onClose={() => setSharing(null)} onDisable={disableShare} onGetUrl={getShareUrl} />}
+      {planning && <PlanMeal recipe={planning} onClose={() => setPlanning(null)} />}
     </main>
   );
 }
@@ -381,7 +434,7 @@ function RecipeImage({ src, alt, eager = false, sizes = "100vw" }: { src: string
   return <Image src={src} alt={alt} fill loading={eager ? "eager" : "lazy"} sizes={sizes} />;
 }
 
-function RecipeDetail({ recipe, favorite, onClose, onEdit, onFavorite, onCook }: { recipe: Recipe; favorite: boolean; onClose: () => void; onEdit: () => void; onFavorite: () => void; onCook: () => void }) {
+function RecipeDetail({ recipe, favorite, onClose, onEdit, onFavorite, onPlan, onShare, onCook }: { recipe: Recipe; favorite: boolean; onClose: () => void; onEdit: () => void; onFavorite: () => void; onPlan: () => void; onShare: () => void; onCook: () => void }) {
   const [servings, setServings] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -394,6 +447,8 @@ function RecipeDetail({ recipe, favorite, onClose, onEdit, onFavorite, onCook }:
           {menuOpen && (
             <div className="detail-menu" role="menu">
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onEdit(); }}><Pencil /> Edit recipe</button>
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onShare(); }}><Share2 /> Share recipe</button>
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onPlan(); }}><CalendarPlus /> Plan meal</button>
             </div>
           )}
         </div>
@@ -525,6 +580,166 @@ function EditRecipe({ recipe, onClose, onSave }: { recipe: Recipe; onClose: () =
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="primary-button full-width" type="submit" disabled={saving}><Check /> {saving ? "Saving…" : "Save changes"}</button>
         </form>
+      </section>
+    </div>
+  );
+}
+
+function ShareRecipe({ recipe, onClose, onDisable, onGetUrl }: { recipe: Recipe; onClose: () => void; onDisable: (recipeId: string) => Promise<void>; onGetUrl: (recipeId: string) => Promise<string> }) {
+  const [url, setUrl] = useState("");
+  const [status, setStatus] = useState("Preparing link…");
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    onGetUrl(recipe.id)
+      .then((shareUrl) => {
+        if (!active) return;
+        setUrl(shareUrl);
+        setStatus("");
+      })
+      .catch((shareError: unknown) => {
+        if (!active) return;
+        setStatus(shareError instanceof Error ? shareError.message : "Could not create the sharing link.");
+      });
+    return () => { active = false; };
+  }, [onGetUrl, recipe.id]);
+
+  async function copyLink() {
+    await navigator.clipboard.writeText(url);
+    setStatus("Link copied.");
+  }
+
+  async function shareLink() {
+    if (!("share" in navigator)) {
+      await copyLink();
+      return;
+    }
+
+    try {
+      await navigator.share({ title: recipe.title, text: `Try this recipe: ${recipe.title}`, url });
+    } catch (shareError) {
+      if (!(shareError instanceof DOMException && shareError.name === "AbortError")) {
+        setStatus("The share sheet could not be opened. You can copy the link instead.");
+      }
+    }
+  }
+
+  async function disableLink() {
+    setWorking(true);
+    try {
+      await onDisable(recipe.id);
+      setUrl("");
+      setStatus("Public link disabled.");
+    } catch (disableError) {
+      setStatus(disableError instanceof Error ? disableError.message : "Could not disable the sharing link.");
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="add-modal action-modal" role="dialog" aria-modal="true" aria-label={`Share ${recipe.title}`}>
+        <div className="modal-header"><div><p className="eyebrow">Public recipe link</p><h2>Share recipe</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X /></button></div>
+        <p className="action-intro">Anyone with this link can view this recipe. Your cookbook and account stay private.</p>
+        {url && <input className="share-link" aria-label="Public recipe link" value={url} readOnly />}
+        <p className={status.includes("Could not") ? "form-error action-status" : "action-status"} aria-live="polite">{status}</p>
+        <div className="action-buttons">
+          <button className="primary-button" type="button" disabled={!url || working} onClick={shareLink}><Share2 /> Share</button>
+          <button className="secondary-button" type="button" disabled={!url || working} onClick={copyLink}><Copy /> Copy link</button>
+        </div>
+        <button className="text-danger" type="button" disabled={!url || working} onClick={disableLink}><Unlink /> Disable public link</button>
+      </section>
+    </div>
+  );
+}
+
+function compactDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function calendarDates(date: string, time: string) {
+  const start = new Date(`${date}T${time || "00:00"}:00`);
+  const end = new Date(start);
+  end.setMinutes(end.getMinutes() + (time ? 60 : 24 * 60));
+  if (!time) return { google: `${compactDate(start)}/${compactDate(end)}`, ics: `DTSTART;VALUE=DATE:${compactDate(start)}\r\nDTEND;VALUE=DATE:${compactDate(end)}` };
+  const clock = (value: Date) => `${compactDate(value)}T${String(value.getHours()).padStart(2, "0")}${String(value.getMinutes()).padStart(2, "0")}00`;
+  return { google: `${clock(start)}/${clock(end)}`, ics: `DTSTART:${clock(start)}\r\nDTEND:${clock(end)}` };
+}
+
+function escapeCalendarText(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+}
+
+function PlanMeal({ recipe, onClose }: { recipe: Recipe; onClose: () => void }) {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const [date, setDate] = useState(`${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`);
+  const [time, setTime] = useState("18:00");
+  const [servings, setServings] = useState(recipe.yield === "Not specified" ? "" : recipe.yield);
+  const [note, setNote] = useState("");
+  const recipeUrl = typeof window === "undefined" ? "" : `${window.location.origin}/recipes/${recipe.id}`;
+
+  function eventDetails() {
+    return [`Recipe: ${recipeUrl}`, servings ? `Servings: ${servings}` : "", note].filter(Boolean).join("\n");
+  }
+
+  function downloadCalendar() {
+    const dates = calendarDates(date, time);
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const contents = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Our Kitchen//Meal Plan//EN",
+      "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      `UID:${crypto.randomUUID()}@our-kitchen`,
+      `DTSTAMP:${stamp}`,
+      dates.ics,
+      `SUMMARY:${escapeCalendarText(recipe.title)}`,
+      `DESCRIPTION:${escapeCalendarText(eventDetails())}`,
+      `URL:${recipeUrl}`,
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const href = URL.createObjectURL(new Blob([contents], { type: "text/calendar;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = `${recipe.title.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "meal"}.ics`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+  }
+
+  function openGoogleCalendar() {
+    const dates = calendarDates(date, time);
+    const query = new URLSearchParams({
+      action: "TEMPLATE",
+      text: recipe.title,
+      dates: dates.google,
+      details: eventDetails(),
+      location: "Our Kitchen",
+      ctz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    window.open(`https://calendar.google.com/calendar/render?${query}`, "_blank", "noopener,noreferrer");
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="add-modal action-modal" role="dialog" aria-modal="true" aria-label={`Plan ${recipe.title}`}>
+        <div className="modal-header"><div><p className="eyebrow">Meal calendar</p><h2>Plan this meal</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X /></button></div>
+        <p className="action-recipe-name">{recipe.title}</p>
+        <div className="manual-form">
+          <div className="form-grid"><label>Date<input type="date" required value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Time<input type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label></div>
+          <label>Servings<input value={servings} onChange={(event) => setServings(event.target.value)} /></label>
+          <label>Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+        </div>
+        <div className="action-buttons calendar-buttons">
+          <button className="primary-button" type="button" disabled={!date} onClick={downloadCalendar}><Download /> Add to calendar</button>
+          <button className="secondary-button" type="button" disabled={!date} onClick={openGoogleCalendar}><CalendarPlus /> Google Calendar</button>
+        </div>
       </section>
     </div>
   );
