@@ -388,7 +388,7 @@ export function RecipeApp({
       {addOpen && <AddRecipe onClose={() => setAddOpen(false)} onAdd={addRecipe} />}
       {editing && <EditRecipe recipe={editing} onClose={() => setEditing(null)} onSave={updateRecipe} />}
       {sharing && <ShareRecipe recipe={sharing} onClose={() => setSharing(null)} onDisable={disableShare} onGetUrl={getShareUrl} />}
-      {planning && <PlanMeal recipe={planning} onClose={() => setPlanning(null)} />}
+      {planning && <PlanMeal recipe={planning} onClose={() => setPlanning(null)} onGetUrl={getShareUrl} />}
     </main>
   );
 }
@@ -674,14 +674,30 @@ function escapeCalendarText(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
 }
 
-function PlanMeal({ recipe, onClose }: { recipe: Recipe; onClose: () => void }) {
+function PlanMeal({ recipe, onClose, onGetUrl }: { recipe: Recipe; onClose: () => void; onGetUrl: (recipeId: string) => Promise<string> }) {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const [date, setDate] = useState(`${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`);
   const [time, setTime] = useState("18:00");
   const [servings, setServings] = useState(recipe.yield === "Not specified" ? "" : recipe.yield);
   const [note, setNote] = useState("");
-  const recipeUrl = typeof window === "undefined" ? "" : `${window.location.origin}/recipes/${recipe.id}`;
+  const [recipeUrl, setRecipeUrl] = useState("");
+  const [linkStatus, setLinkStatus] = useState("Preparing recipe link…");
+
+  useEffect(() => {
+    let active = true;
+    onGetUrl(recipe.id)
+      .then((url) => {
+        if (!active) return;
+        setRecipeUrl(url);
+        setLinkStatus("");
+      })
+      .catch((linkError: unknown) => {
+        if (!active) return;
+        setLinkStatus(linkError instanceof Error ? linkError.message : "Could not prepare the recipe link.");
+      });
+    return () => { active = false; };
+  }, [onGetUrl, recipe.id]);
 
   function eventDetails() {
     return [`Recipe: ${recipeUrl}`, servings ? `Servings: ${servings}` : "", note].filter(Boolean).join("\n");
@@ -736,9 +752,10 @@ function PlanMeal({ recipe, onClose }: { recipe: Recipe; onClose: () => void }) 
           <label>Servings<input value={servings} onChange={(event) => setServings(event.target.value)} /></label>
           <label>Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         </div>
+        <p className={linkStatus && linkStatus !== "Preparing recipe link…" ? "form-error action-status" : "action-status"} aria-live="polite">{linkStatus}</p>
         <div className="action-buttons calendar-buttons">
-          <button className="primary-button" type="button" disabled={!date} onClick={downloadCalendar}><Download /> Add to calendar</button>
-          <button className="secondary-button" type="button" disabled={!date} onClick={openGoogleCalendar}><CalendarPlus /> Google Calendar</button>
+          <button className="primary-button" type="button" disabled={!date || !recipeUrl} onClick={downloadCalendar}><Download /> Add to calendar</button>
+          <button className="secondary-button" type="button" disabled={!date || !recipeUrl} onClick={openGoogleCalendar}><CalendarPlus /> Google Calendar</button>
         </div>
       </section>
     </div>
