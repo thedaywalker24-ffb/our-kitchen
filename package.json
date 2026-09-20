@@ -1,0 +1,30 @@
+{
+  "name": "our-kitchen",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "biome lint .",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.116.0",
+    "lucide-react": "1.47.0",
+    "next": "16.3.5",
+    "papaparse": "^5.7.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.10.0",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "7.0.2"
+  }
+}

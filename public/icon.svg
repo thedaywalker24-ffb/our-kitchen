@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Our Kitchen">
+  <rect width="512" height="512" rx="88" fill="#1f4937"/>
+  <path d="M150 151h212v210H150z" fill="#fff" opacity=".12"/>
+  <path d="m178 192 19 19 34-40" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="18"/>
+  <path d="M260 194h76M260 256h76M260 318h76" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="18"/>
+  <path d="m178 254 19 19 34-40M178 316l19 19 34-40" fill="none" stroke="#d6a63c" stroke-linecap="round" stroke-linejoin="round" stroke-width="18"/>
+</svg>

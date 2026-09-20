@@ -1,0 +1,13 @@
+# Recipe exports contain private household data and may contain copyrighted text.
+data/
+
+# Local configuration and generated files.
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.next/
+node_modules/
+test-results/
+playwright-report/

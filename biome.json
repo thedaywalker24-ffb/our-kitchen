@@ -1,0 +1,17 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "files": {
+    "includes": ["app/**", "components/**", "lib/**", "*.ts", "*.tsx", "!data", "!.next"]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "css": {
+    "linter": {
+      "enabled": false
+    }
+  }
+}

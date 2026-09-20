@@ -1,0 +1,66 @@
+import { expect, test } from "@playwright/test";
+
+test("private household sign-in is available", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/login");
+
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-login.png", fullPage: true });
+});
+
+test("recipe library requires a signed-in household member", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+});
+
+test("mobile recipe and cooking flows are usable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/preview");
+
+  await expect(page.getByRole("heading", { name: "What are we cooking?" })).toBeVisible();
+  await expect(page.locator(".recipe-card")).toHaveCount(6);
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  await page.getByRole("button", { name: "List view" }).click();
+  await expect(page.locator(".recipe-grid")).toHaveClass(/list-view/);
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-list.png", fullPage: true });
+  await page.getByRole("button", { name: "Grid view" }).click();
+
+  await page.getByLabel("Open Oven-Roasted Whole Chicken").click();
+  const recipeDialog = page.getByRole("dialog", { name: "Oven-Roasted Whole Chicken" });
+  await expect(recipeDialog.getByRole("heading", { name: "Oven-Roasted Whole Chicken" })).toBeVisible();
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-detail.png", fullPage: true });
+
+  await page.getByRole("button", { name: "Start cooking" }).click();
+  await expect(page.getByText("Step 1 of 5")).toBeVisible();
+  await page.getByRole("button", { name: "Next step" }).click();
+  await expect(page.getByText("Step 2 of 5")).toBeVisible();
+  await page.getByRole("button", { name: "Show ingredients" }).click();
+  await expect(page.getByRole("heading", { name: "Ingredients" })).toBeVisible();
+  await page.screenshot({ path: "/tmp/our-kitchen-mobile-cooking.png", fullPage: true });
+});
+
+test("desktop library filters and add flow work", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/preview");
+
+  await expect(page.getByRole("complementary")).toBeVisible();
+  await page.getByLabel("Search recipes or ingredients").fill("pistachio");
+  await expect(page.locator(".recipe-card")).toHaveCount(1);
+  await page.getByLabel("Clear search").click();
+
+  await page.getByRole("button", { name: "Add recipe" }).click();
+  const addDialog = page.getByRole("dialog", { name: "Add recipe" });
+  await addDialog.getByRole("button", { name: "Enter manually" }).click();
+  await addDialog.getByLabel("Recipe title").fill("Test Kitchen Soup");
+  await addDialog.getByLabel("Ingredients", { exact: true }).fill("1 onion\n2 cups stock");
+  await addDialog.getByLabel("Directions", { exact: true }).fill("Chop onion\nSimmer with stock");
+  await addDialog.getByRole("button", { name: "Add recipe", exact: true }).click();
+  const savedRecipe = page.getByRole("dialog", { name: "Test Kitchen Soup" });
+  await expect(savedRecipe.getByRole("heading", { name: "Test Kitchen Soup" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to recipes" }).click();
+  await page.screenshot({ path: "/tmp/our-kitchen-desktop.png", fullPage: true });
+});
