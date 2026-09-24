@@ -38,6 +38,8 @@ test("mobile recipe and cooking flows are usable", async ({ page }) => {
   await page.getByLabel("Open Oven-Roasted Whole Chicken").click();
   const recipeDialog = page.getByRole("dialog", { name: "Oven-Roasted Whole Chicken" });
   await expect(recipeDialog.getByRole("heading", { name: "Oven-Roasted Whole Chicken" })).toBeVisible();
+  await expect(recipeDialog.locator(".direction-row")).toHaveCount(5);
+  await expect(recipeDialog.locator(".direction-row").last()).toContainText("rest 10–15 minutes before carving");
   await page.screenshot({ path: "/tmp/our-kitchen-mobile-detail.png", fullPage: true });
 
   await page.getByRole("button", { name: "Start cooking" }).click();

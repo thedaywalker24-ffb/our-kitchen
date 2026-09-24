@@ -559,7 +559,7 @@ function RecipeDetail({ recipe, favorite, onClose, onEdit, onFavorite, onPlan, o
         </section>
         <section className="recipe-section directions-preview">
           <h2>Directions</h2>
-          {recipe.steps.slice(0, 3).map((step, index) => <div className="direction-row" key={step}><span>{index + 1}</span><p>{step}</p></div>)}
+          {recipe.steps.map((step, index) => <div className="direction-row" key={step}><span>{index + 1}</span><p>{step}</p></div>)}
         </section>
         <div className="source-row">
           <span>From {recipe.source}</span>
